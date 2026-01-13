@@ -8,6 +8,7 @@ Generates high-fidelity 3D models with PBR materials from input images.
 API:
   Input:
     - image_base64: Base64 encoded input image (required)
+    - fast_mode: Use Mini-Fast (0.6B) instead of Omni (3.3B) for shape (default: false)
     - generate_texture: Whether to generate PBR textures (default: true)
     - output_format: 'glb' or 'obj' (default: 'glb')
     - num_views: Number of views for texture (default: from MAX_NUM_VIEW env)
@@ -239,26 +240,41 @@ def unload_shape_pipelines():
     torch.cuda.empty_cache()
 
 
+def generate_shape(job_input, image_path):
+    """Generate mesh using Omni (quality) or Mini-Fast (fast) pipeline.
+
+    Args:
+        job_input: Dict containing request parameters, including optional 'fast_mode'
+        image_path: Path to the input image file
+
+    Returns:
+        Generated mesh object
+    """
+    fast_mode = job_input.get("fast_mode", False)
+
+    if fast_mode:
+        # Fast mode → Mini-Fast (0.6B, ~2x faster)
+        print("Using Mini-Fast pipeline (fast mode)...")
+        load_fast_pipeline()
+        mesh = shape_pipeline_fast(image=str(image_path))[0]
+    else:
+        # Quality mode → Omni (3.3B, best quality)
+        print("Using Omni pipeline (quality mode)...")
+        load_omni_pipeline()
+        mesh = shape_pipeline_omni(image=str(image_path))[0]
+
+    return mesh
+
+
 def load_pipelines():
-    """Load the shape and paint pipelines."""
+    """Load the paint pipeline (shape pipeline loaded on-demand via generate_shape)."""
     global shape_pipeline, paint_pipeline
 
     device = get_device()
     print(f"Using device: {device}")
 
-    if shape_pipeline is None:
-        print("Loading shape pipeline...")
-        try:
-            from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
-            shape_pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-                '/models/Hunyuan3D-2.1',
-                device=device
-            )
-            print("Shape pipeline loaded successfully.")
-        except Exception as e:
-            print(f"Error loading shape pipeline: {e}")
-            traceback.print_exc()
-            raise
+    # NOTE: Legacy shape_pipeline (Hunyuan3D-2.1) is no longer loaded here.
+    # Shape generation now uses generate_shape() which loads Omni or Mini-Fast on-demand.
 
     if paint_pipeline is None:
         print("Loading paint pipeline...")
@@ -277,13 +293,7 @@ def load_pipelines():
 
     # Apply CPU offload if enabled (trades speed for VRAM)
     if should_enable_cpu_offload():
-        print("VRAM optimization: Enabling CPU offload for pipelines...")
-        try:
-            if shape_pipeline is not None:
-                shape_pipeline.enable_model_cpu_offload()
-                print("  - Shape pipeline: CPU offload enabled")
-        except Exception as e:
-            print(f"  - Shape pipeline: CPU offload failed ({e})")
+        print("VRAM optimization: Enabling CPU offload for paint pipeline...")
         try:
             if paint_pipeline is not None:
                 paint_pipeline.enable_model_cpu_offload()
@@ -344,9 +354,9 @@ def handler(job: dict) -> dict:
     if output_format not in ["glb", "obj"]:
         return {"error": f"Invalid output_format: {output_format}. Use 'glb' or 'obj'."}
 
-    # Load pipelines
+    # Load paint pipeline (shape pipeline loaded on-demand in generate_shape)
     try:
-        shape_pipe, paint_pipe = load_pipelines()
+        _, paint_pipe = load_pipelines()
     except Exception as e:
         return {"error": f"Failed to load pipelines: {str(e)}"}
 
@@ -366,11 +376,13 @@ def handler(job: dict) -> dict:
         except Exception as e:
             return {"error": f"Failed to decode input image: {str(e)}"}
 
-        # Generate shape (untextured mesh)
+        # Generate shape (untextured mesh) using hybrid routing
         try:
-            runpod.serverless.progress_update(job, "Generating 3D shape...")
+            fast_mode = job_input.get("fast_mode", False)
+            mode_str = "fast" if fast_mode else "quality"
+            runpod.serverless.progress_update(job, f"Generating 3D shape ({mode_str} mode)...")
             print("Generating 3D shape from image...")
-            mesh = shape_pipe(image=str(image_path))[0]
+            mesh = generate_shape(job_input, image_path)
             print("Shape generation complete.")
             if should_clear_cache():
                 torch.cuda.empty_cache()
@@ -379,6 +391,10 @@ def handler(job: dict) -> dict:
                 torch.cuda.empty_cache()
             traceback.print_exc()
             return {"error": f"Shape generation failed: {str(e)}"}
+
+        # Free VRAM from shape pipeline before loading texture pipeline
+        print("Unloading shape pipelines to free VRAM...")
+        unload_shape_pipelines()
 
         # Generate texture if requested
         if generate_texture:
