@@ -196,16 +196,39 @@ RUN python -c "import hf_xet; print('hf_xet: OK')" || echo "hf_xet not available
 RUN python -c "import numpy; assert numpy.__version__.startswith('1.'), f'ERROR: numpy 2.x detected: {numpy.__version__}'; print(f'numpy {numpy.__version__}: OK')"
 
 # =============================================================================
-# STAGE 8: Download model weights (large but faster cold starts)
+# STAGE 8: Download model weights (selective downloads for hybrid pipeline)
 # =============================================================================
+# Downloads only required components:
+# - Omni: Quality shape generation (3.3B params)
+# - Mini-Fast: Fast shape generation (0.6B params)
+# - PaintPBR: PBR texture painting
 WORKDIR /app
 RUN mkdir -p /models
 
-# Download Hunyuan3D-2.1 weights
-RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('tencent/Hunyuan3D-2.1', local_dir='/models/Hunyuan3D-2.1')"
+# Download Omni shape model (quality mode) - only the DiT weights
+RUN python -c "from huggingface_hub import snapshot_download; \
+    snapshot_download('tencent/Hunyuan3D-Omni', \
+        local_dir='/models/Hunyuan3D-Omni', \
+        allow_patterns=['hunyuan3d-omni-dit/*', 'config.json', '*.md'])"
+
+# Download Mini-Fast shape model (fast mode) - only the fast variant
+RUN python -c "from huggingface_hub import snapshot_download; \
+    snapshot_download('tencent/Hunyuan3D-2mini', \
+        local_dir='/models/Hunyuan3D-2mini', \
+        allow_patterns=['hunyuan3d-dit-v2-mini-fast/*', 'config.json'])"
+
+# Download PaintPBR texture model - only paint components
+RUN python -c "from huggingface_hub import snapshot_download; \
+    snapshot_download('tencent/Hunyuan3D-2.1', \
+        local_dir='/models/Hunyuan3D-2.1', \
+        allow_patterns=['hunyuan3d-paintpbr-v2-1/*', 'hunyuan3d-vae-v2-1/*', 'hy3dpaint/*'])"
 
 # VERIFY: Model files exist
-RUN test -d /models/Hunyuan3D-2.1 || (echo "ERROR: Model not downloaded" && exit 1)
+RUN test -d /models/Hunyuan3D-Omni/hunyuan3d-omni-dit || (echo "ERROR: Omni model not downloaded" && exit 1)
+RUN test -d /models/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini-fast || (echo "ERROR: Mini-Fast model not downloaded" && exit 1)
+RUN test -d /models/Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1 || (echo "ERROR: PaintPBR model not downloaded" && exit 1)
+RUN ls -la /models/Hunyuan3D-Omni/
+RUN ls -la /models/Hunyuan3D-2mini/
 RUN ls -la /models/Hunyuan3D-2.1/
 
 # ONNX-based RealESRGAN upscaler (replaces basicsr/realesrgan packages)
@@ -311,6 +334,11 @@ RUN echo "=============================================" && \
     python -c "import torch; print(f'PyTorch: {torch.__version__}')" && \
     python -c "import custom_rasterizer; print('custom_rasterizer: installed')" && \
     python -c "import runpod; print(f'runpod: {runpod.__version__}')" && \
-    echo "Model path: /models/Hunyuan3D-2.1" && \
+    echo "Model paths:" && \
+    echo "  - Omni (quality): /models/Hunyuan3D-Omni" && \
+    du -sh /models/Hunyuan3D-Omni && \
+    echo "  - Mini-Fast (fast): /models/Hunyuan3D-2mini" && \
+    du -sh /models/Hunyuan3D-2mini && \
+    echo "  - PaintPBR (textures): /models/Hunyuan3D-2.1" && \
     du -sh /models/Hunyuan3D-2.1 && \
     echo "============================================="
