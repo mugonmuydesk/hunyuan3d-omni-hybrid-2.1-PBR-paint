@@ -269,6 +269,155 @@ print("\n[PASS] Handler logic OK")
 
 
 # =============================================================================
+# TEST 3b: Hybrid routing logic (Omni vs Mini-Fast vs Skeleton)
+# =============================================================================
+print("\n" + "=" * 60)
+print("TEST 3b: Hybrid routing logic")
+print("=" * 60)
+
+# Test that generate_shape routes correctly based on fast_mode and skeleton
+
+# Mock the pipeline loaders and pipelines
+mock_omni_called = []
+mock_fast_called = []
+mock_unload_called = []
+
+def mock_load_omni():
+    mock_omni_called.append(True)
+    handler.shape_pipeline_omni = MagicMock(return_value=[MagicMock()])
+
+def mock_load_fast():
+    mock_fast_called.append(True)
+    handler.shape_pipeline_fast = MagicMock(return_value=[MagicMock()])
+
+def mock_unload():
+    mock_unload_called.append(True)
+    handler.shape_pipeline_omni = None
+    handler.shape_pipeline_fast = None
+
+# Test 3b-1: Default mode (no fast_mode) should use Omni
+print("\n  Testing default mode -> Omni...")
+mock_omni_called.clear()
+mock_fast_called.clear()
+
+with patch.object(handler, 'load_omni_pipeline', mock_load_omni):
+    with patch.object(handler, 'load_fast_pipeline', mock_load_fast):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            image_path = temp_path / "test.png"
+            image_path.write_bytes(b'\x89PNG\r\n\x1a\n')  # Minimal PNG header
+
+            job_input = {"generate_texture": False}  # No fast_mode
+            try:
+                handler.generate_shape(job_input, image_path, temp_path)
+            except:
+                pass  # We just care about which pipeline was called
+
+if mock_omni_called and not mock_fast_called:
+    print("  [OK] Default mode uses Omni pipeline")
+else:
+    print(f"  [FAIL] Default should use Omni. Omni={len(mock_omni_called)}, Fast={len(mock_fast_called)}")
+    sys.exit(1)
+
+# Test 3b-2: fast_mode=True should use Mini-Fast
+print("\n  Testing fast_mode=True -> Mini-Fast...")
+mock_omni_called.clear()
+mock_fast_called.clear()
+
+with patch.object(handler, 'load_omni_pipeline', mock_load_omni):
+    with patch.object(handler, 'load_fast_pipeline', mock_load_fast):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            image_path = temp_path / "test.png"
+            image_path.write_bytes(b'\x89PNG\r\n\x1a\n')
+
+            job_input = {"fast_mode": True, "generate_texture": False}
+            try:
+                handler.generate_shape(job_input, image_path, temp_path)
+            except:
+                pass
+
+if mock_fast_called and not mock_omni_called:
+    print("  [OK] fast_mode=True uses Mini-Fast pipeline")
+else:
+    print(f"  [FAIL] fast_mode should use Mini-Fast. Omni={len(mock_omni_called)}, Fast={len(mock_fast_called)}")
+    sys.exit(1)
+
+# Test 3b-3: skeleton_data should use Omni (override fast_mode)
+print("\n  Testing skeleton input -> Omni (overrides fast_mode)...")
+mock_omni_called.clear()
+mock_fast_called.clear()
+
+with patch.object(handler, 'load_omni_pipeline', mock_load_omni):
+    with patch.object(handler, 'load_fast_pipeline', mock_load_fast):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            image_path = temp_path / "test.png"
+            image_path.write_bytes(b'\x89PNG\r\n\x1a\n')
+
+            # Skeleton with fast_mode=True - skeleton should override
+            job_input = {
+                "fast_mode": True,
+                "skeleton_data": [[0, 0, 0, 1, 1, 1], [1, 1, 1, 2, 2, 2]],
+                "generate_texture": False
+            }
+            try:
+                handler.generate_shape(job_input, image_path, temp_path)
+            except:
+                pass
+
+if mock_omni_called and not mock_fast_called:
+    print("  [OK] skeleton input uses Omni (overrides fast_mode)")
+else:
+    print(f"  [FAIL] skeleton should override fast_mode. Omni={len(mock_omni_called)}, Fast={len(mock_fast_called)}")
+    sys.exit(1)
+
+# Test 3b-4: unload_shape_pipelines clears both pipelines
+print("\n  Testing unload_shape_pipelines...")
+handler.shape_pipeline_omni = MagicMock()
+handler.shape_pipeline_fast = MagicMock()
+
+with patch('torch.cuda.empty_cache'):
+    handler.unload_shape_pipelines()
+
+if handler.shape_pipeline_omni is None and handler.shape_pipeline_fast is None:
+    print("  [OK] unload_shape_pipelines clears both pipelines")
+else:
+    print("  [FAIL] unload_shape_pipelines should clear both pipelines")
+    sys.exit(1)
+
+# Test 3b-5: parse_skeleton_input with JSON data
+print("\n  Testing parse_skeleton_input with JSON...")
+with tempfile.TemporaryDirectory() as temp_dir:
+    temp_path = Path(temp_dir)
+    job_input = {"skeleton_data": [[0, 0, 0, 1, 1, 1], [1, 1, 1, 2, 2, 2]]}
+    bone_points = handler.parse_skeleton_input(job_input, temp_path)
+
+    if bone_points is not None and bone_points.shape == (2, 6):
+        print(f"  [OK] parse_skeleton_input returned tensor shape {bone_points.shape}")
+    else:
+        print(f"  [FAIL] Expected shape (2, 6), got {bone_points.shape if bone_points is not None else None}")
+        sys.exit(1)
+
+# Test 3b-6: parse_skeleton_input with base64 file
+print("\n  Testing parse_skeleton_input with base64...")
+with tempfile.TemporaryDirectory() as temp_dir:
+    temp_path = Path(temp_dir)
+    skeleton_text = "0 0 0 1 1 1\n1 1 1 2 2 2\n"
+    skeleton_b64 = base64.b64encode(skeleton_text.encode()).decode()
+    job_input = {"skeleton_base64": skeleton_b64}
+    bone_points = handler.parse_skeleton_input(job_input, temp_path)
+
+    if bone_points is not None and bone_points.shape == (2, 6):
+        print(f"  [OK] parse_skeleton_input (base64) returned tensor shape {bone_points.shape}")
+    else:
+        print(f"  [FAIL] Expected shape (2, 6), got {bone_points.shape if bone_points is not None else None}")
+        sys.exit(1)
+
+print("\n[PASS] Hybrid routing logic OK")
+
+
+# =============================================================================
 # TEST 4: Numpy API compatibility (numpy 1.x vs 2.x)
 # =============================================================================
 print("\n" + "=" * 60)
@@ -357,6 +506,9 @@ This validates:
 - All import chains resolve (including pytorch_lightning)
 - Numpy patches work without recursion
 - Handler logic is correct
+- Hybrid routing: default->Omni, fast_mode->Mini-Fast, skeleton->Omni
+- Skeleton input parsing (JSON and base64 formats)
+- Memory management (unload_shape_pipelines)
 - Numpy 1.x APIs are available
 - ONNX Runtime providers are available
 
@@ -364,4 +516,5 @@ What this does NOT test (requires real models):
 - Actual model loading (from_pretrained)
 - GPU memory allocation
 - Inference quality
+- Omni SiT pipeline with real skeleton data
 """)
