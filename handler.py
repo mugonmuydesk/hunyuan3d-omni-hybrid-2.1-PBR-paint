@@ -9,10 +9,18 @@ API:
   Input:
     - image_base64: Base64 encoded input image (required)
     - fast_mode: Use Mini-Fast (0.6B) instead of Omni (3.3B) for shape (default: false)
+    - skeleton_base64: Base64 encoded bone coordinates file (Omni only, optional)
+    - skeleton_data: JSON array of bone coords [[x1,y1,z1,x2,y2,z2],...] (Omni only, optional)
     - generate_texture: Whether to generate PBR textures (default: true)
     - output_format: 'glb' or 'obj' (default: 'glb')
     - num_views: Number of views for texture (default: from MAX_NUM_VIEW env)
     - texture_resolution: Texture resolution (default: from TEXTURE_RESOLUTION env)
+
+  Skeleton Format (for pose-conditioned generation):
+    - Each bone is 6 values: start_x, start_y, start_z, end_x, end_y, end_z
+    - Follows PoseMaster bone definition (body + hand bones)
+    - skeleton_base64: text file with M lines, 6 space-separated values each
+    - skeleton_data: JSON array of M arrays with 6 values each
 
   Output:
     - download_url: Presigned S3 URL to download the model (valid 1 hour)
@@ -207,12 +215,15 @@ def get_device():
 
 
 def load_omni_pipeline():
-    """Load Omni pipeline for quality mode (3.3B params)"""
+    """Load Omni pipeline for quality mode (3.3B params)
+
+    Omni uses SiT (Scalable Interpolant Transformer) architecture with
+    support for multi-modal control signals including skeleton/pose.
+    """
     global shape_pipeline_omni
-    from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
-    shape_pipeline_omni = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+    from hy3dgen.shapegen import Hunyuan3DOmniSiTFlowMatchingPipeline
+    shape_pipeline_omni = Hunyuan3DOmniSiTFlowMatchingPipeline.from_pretrained(
         '/models/Hunyuan3D-Omni',
-        subfolder='hunyuan3d-omni-dit',
         device=get_device()
     )
 
@@ -240,17 +251,63 @@ def unload_shape_pipelines():
     torch.cuda.empty_cache()
 
 
-def generate_shape(job_input, image_path):
+def parse_skeleton_input(job_input, temp_path):
+    """Parse skeleton/pose input from request.
+
+    Supports two formats:
+    - skeleton_base64: Base64 encoded text file with bone coordinates (M lines, 6 values each)
+    - skeleton_data: JSON array of bone coordinates [[x1,y1,z1,x2,y2,z2], ...]
+
+    Returns:
+        torch.Tensor of shape [num_bones, 6] or None if no skeleton provided
+    """
+    import numpy as np
+
+    skeleton_b64 = job_input.get("skeleton_base64")
+    skeleton_data = job_input.get("skeleton_data")
+
+    if skeleton_b64:
+        # Decode base64 text file
+        skeleton_text = base64.b64decode(skeleton_b64).decode('utf-8')
+        skeleton_path = temp_path / "skeleton.txt"
+        skeleton_path.write_text(skeleton_text)
+        bone_points = torch.from_numpy(np.loadtxt(str(skeleton_path))).float()
+        print(f"Loaded skeleton from base64: {bone_points.shape}")
+        return bone_points
+    elif skeleton_data:
+        # Parse JSON array directly
+        bone_points = torch.tensor(skeleton_data, dtype=torch.float32)
+        print(f"Loaded skeleton from JSON: {bone_points.shape}")
+        return bone_points
+
+    return None
+
+
+def generate_shape(job_input, image_path, temp_path=None):
     """Generate mesh using Omni (quality) or Mini-Fast (fast) pipeline.
 
     Args:
-        job_input: Dict containing request parameters, including optional 'fast_mode'
+        job_input: Dict containing request parameters:
+            - fast_mode: Use Mini-Fast instead of Omni (default: False)
+            - skeleton_base64: Base64 encoded bone coordinates file (Omni only)
+            - skeleton_data: JSON array of bone coordinates (Omni only)
         image_path: Path to the input image file
+        temp_path: Temp directory for skeleton file (optional)
 
     Returns:
         Generated mesh object
+
+    Note:
+        Skeleton/pose input is only supported with Omni pipeline (quality mode).
+        If skeleton is provided with fast_mode=True, fast_mode is ignored.
     """
     fast_mode = job_input.get("fast_mode", False)
+    has_skeleton = "skeleton_base64" in job_input or "skeleton_data" in job_input
+
+    # Skeleton input requires Omni (override fast_mode)
+    if has_skeleton and fast_mode:
+        print("WARNING: Skeleton input requires Omni pipeline. Ignoring fast_mode.")
+        fast_mode = False
 
     if fast_mode:
         # Fast mode → Mini-Fast (0.6B, ~2x faster)
@@ -261,7 +318,22 @@ def generate_shape(job_input, image_path):
         # Quality mode → Omni (3.3B, best quality)
         print("Using Omni pipeline (quality mode)...")
         load_omni_pipeline()
-        mesh = shape_pipeline_omni(image=str(image_path))[0]
+
+        # Check for skeleton/pose input
+        bone_points = None
+        if has_skeleton and temp_path:
+            bone_points = parse_skeleton_input(job_input, temp_path)
+
+        if bone_points is not None:
+            # Pose-conditioned generation
+            print(f"Generating with skeleton pose control ({bone_points.shape[0]} bones)...")
+            mesh = shape_pipeline_omni(
+                image=str(image_path),
+                bone_points=bone_points.unsqueeze(0)  # Add batch dimension
+            )[0]
+        else:
+            # Image-only generation
+            mesh = shape_pipeline_omni(image=str(image_path))[0]
 
     return mesh
 
@@ -382,7 +454,7 @@ def handler(job: dict) -> dict:
             mode_str = "fast" if fast_mode else "quality"
             runpod.serverless.progress_update(job, f"Generating 3D shape ({mode_str} mode)...")
             print("Generating 3D shape from image...")
-            mesh = generate_shape(job_input, image_path)
+            mesh = generate_shape(job_input, image_path, temp_path)
             print("Shape generation complete.")
             if should_clear_cache():
                 torch.cuda.empty_cache()
