@@ -180,6 +180,10 @@ print("Applied torch.from_numpy and torch.tensor monkey-patches for numpy compat
 shape_pipeline = None
 paint_pipeline = None
 
+# Hybrid mode pipelines (for quality/fast mode selection)
+shape_pipeline_omni = None   # For quality mode (Omni 3.3B)
+shape_pipeline_fast = None   # For fast mode (Mini-Fast 0.6B)
+
 
 # =============================================================================
 # VRAM Optimization toggles (all OFF by default for max speed on high-VRAM GPUs)
@@ -199,6 +203,40 @@ def get_device():
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
+
+
+def load_omni_pipeline():
+    """Load Omni pipeline for quality mode (3.3B params)"""
+    global shape_pipeline_omni
+    from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
+    shape_pipeline_omni = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+        '/models/Hunyuan3D-Omni',
+        subfolder='hunyuan3d-omni-dit',
+        device=get_device()
+    )
+
+
+def load_fast_pipeline():
+    """Load Mini-Fast pipeline for fast mode (0.6B params)"""
+    global shape_pipeline_fast
+    from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
+    shape_pipeline_fast = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+        '/models/Hunyuan3D-2mini',
+        subfolder='hunyuan3d-dit-v2-mini-fast',
+        device=get_device()
+    )
+
+
+def unload_shape_pipelines():
+    """Free VRAM by unloading shape pipelines before texture generation"""
+    global shape_pipeline_omni, shape_pipeline_fast
+    if shape_pipeline_omni is not None:
+        del shape_pipeline_omni
+        shape_pipeline_omni = None
+    if shape_pipeline_fast is not None:
+        del shape_pipeline_fast
+        shape_pipeline_fast = None
+    torch.cuda.empty_cache()
 
 
 def load_pipelines():
