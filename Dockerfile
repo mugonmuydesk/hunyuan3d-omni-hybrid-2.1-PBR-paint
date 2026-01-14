@@ -21,6 +21,7 @@ ENV MAX_JOBS=4
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     gnupg \
+    curl \
     && curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | gpg --dearmor -o /usr/share/keyrings/nvidia-cuda.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/nvidia-cuda.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" > /etc/apt/sources.list.d/nvidia-cuda.list \
     && rm -rf /var/lib/apt/lists/*
