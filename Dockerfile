@@ -297,6 +297,8 @@ print('Paint pipeline import: OK')" || echo "WARN: Paint pipeline import failed 
 ENV MODEL_BASE=/runpod-volume/models
 ENV HF_HOME=/runpod-volume/models
 ENV HUGGINGFACE_HUB_CACHE=/runpod-volume/models
+# Diffusers modules cache - must be writable for custom code loading
+ENV HF_MODULES_CACHE=/tmp/hf_modules
 
 # Texture generation settings (defaults for lower VRAM usage)
 ENV MAX_NUM_VIEW=3
