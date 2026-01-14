@@ -19,10 +19,9 @@ def get_onnx_session(model_path: str, use_gpu: bool = True):
 
     providers = []
     if use_gpu:
-        # Try TensorRT first (fastest), then CUDA, then CPU
         available = ort.get_available_providers()
-        if 'TensorrtExecutionProvider' in available:
-            providers.append('TensorrtExecutionProvider')
+        # Skip TensorRT - causes CUDA init failures on some GPU configurations
+        # TensorRT provider tries to init CUDA immediately when added to list
         if 'CUDAExecutionProvider' in available:
             providers.append('CUDAExecutionProvider')
     providers.append('CPUExecutionProvider')

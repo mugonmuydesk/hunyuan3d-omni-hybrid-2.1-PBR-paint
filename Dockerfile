@@ -246,13 +246,13 @@ RUN python -m py_compile /app/handler.py && echo "handler.py: syntax OK"
 # VERIFY: ONNX upscaler can be imported
 RUN python -c "from onnx_upscaler import upscale_image; print('ONNX upscaler: OK')"
 
-# VERIFY: ONNX Runtime can use TensorRT provider
+# VERIFY: ONNX Runtime has CUDA provider (TensorRT skipped - causes init issues on some GPUs)
 RUN python -c "\
 import onnxruntime as ort; \
 providers = ort.get_available_providers(); \
 print(f'Available providers: {providers}'); \
-assert 'TensorrtExecutionProvider' in providers, 'TensorRT provider not available'; \
-print('TensorRT provider: OK')"
+assert 'CUDAExecutionProvider' in providers, 'CUDA provider not available'; \
+print('CUDA provider: OK')"
 
 # VERIFY: Patched image_super_utils uses ONNX upscaler (not realesrgan)
 RUN python -c "\
