@@ -17,6 +17,12 @@ ENV MAX_JOBS=4
 # =============================================================================
 # STAGE 1: System dependencies + TensorRT
 # =============================================================================
+# FIX: Remove conflicting NVIDIA apt sources before adding our own
+# The base image has cuda-archive-keyring.gpg, we need nvidia-cuda.gpg
+# Having both causes "Conflicting values set for option Signed-By" error
+RUN rm -f /etc/apt/sources.list.d/cuda*.list && \
+    rm -f /usr/share/keyrings/cuda-archive-keyring.gpg
+
 # Add NVIDIA repo for TensorRT (must be done before apt-get update)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -206,11 +212,12 @@ RUN python -c "import numpy; assert numpy.__version__.startswith('1.'), f'ERROR:
 WORKDIR /app
 RUN mkdir -p /models
 
-# Download Omni shape model (quality mode) - only the DiT weights
+# Download Omni shape model (quality mode) - full model (SiT architecture)
+# Structure: model/, vae/, cond_encoder/, image_processor/, scheduler/, config.json
 RUN python -c "from huggingface_hub import snapshot_download; \
     snapshot_download('tencent/Hunyuan3D-Omni', \
         local_dir='/models/Hunyuan3D-Omni', \
-        allow_patterns=['hunyuan3d-omni-dit/*', 'config.json', '*.md'])"
+        allow_patterns=['model/*', 'vae/*', 'cond_encoder/*', 'image_processor/*', 'scheduler/*', 'config.json'])"
 
 # Download Mini-Fast shape model (fast mode) - only the fast variant
 RUN python -c "from huggingface_hub import snapshot_download; \
@@ -225,7 +232,7 @@ RUN python -c "from huggingface_hub import snapshot_download; \
         allow_patterns=['hunyuan3d-paintpbr-v2-1/*', 'hunyuan3d-vae-v2-1/*', 'hy3dpaint/*'])"
 
 # VERIFY: Model files exist
-RUN test -d /models/Hunyuan3D-Omni/hunyuan3d-omni-dit || (echo "ERROR: Omni model not downloaded" && exit 1)
+RUN test -d /models/Hunyuan3D-Omni/model || (echo "ERROR: Omni model not downloaded" && exit 1)
 RUN test -d /models/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini-fast || (echo "ERROR: Mini-Fast model not downloaded" && exit 1)
 RUN test -d /models/Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1 || (echo "ERROR: PaintPBR model not downloaded" && exit 1)
 RUN ls -la /models/Hunyuan3D-Omni/
