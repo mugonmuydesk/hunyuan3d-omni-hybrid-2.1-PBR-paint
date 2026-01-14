@@ -203,41 +203,17 @@ RUN python -c "import hf_xet; print('hf_xet: OK')" || echo "hf_xet not available
 RUN python -c "import numpy; assert numpy.__version__.startswith('1.'), f'ERROR: numpy 2.x detected: {numpy.__version__}'; print(f'numpy {numpy.__version__}: OK')"
 
 # =============================================================================
-# STAGE 8: Download model weights (selective downloads for hybrid pipeline)
+# STAGE 8: Model paths (models stored on RunPod Network Volume)
 # =============================================================================
-# Downloads only required components:
-# - Omni: Quality shape generation (3.3B params)
-# - Mini-Fast: Fast shape generation (0.6B params)
-# - PaintPBR: PBR texture painting
+# Models are NOT downloaded during build - they're on Network Volume at /runpod-volume/models
+# This keeps image size small (~15GB vs ~52GB) and build time under 30 min limit
+#
+# Network Volume structure (upload separately):
+#   /runpod-volume/models/
+#     Hunyuan3D-Omni/      (~24GB) - Quality shape generation
+#     Hunyuan3D-2mini/     (~7GB)  - Fast shape generation
+#     Hunyuan3D-2.1/       (~7GB)  - PBR texture painting
 WORKDIR /app
-RUN mkdir -p /models
-
-# Download Omni shape model (quality mode) - full model (SiT architecture)
-# Structure: model/, vae/, cond_encoder/, image_processor/, scheduler/, config.json
-RUN python -c "from huggingface_hub import snapshot_download; \
-    snapshot_download('tencent/Hunyuan3D-Omni', \
-        local_dir='/models/Hunyuan3D-Omni', \
-        allow_patterns=['model/*', 'vae/*', 'cond_encoder/*', 'image_processor/*', 'scheduler/*', 'config.json'])"
-
-# Download Mini-Fast shape model (fast mode) - only the fast variant
-RUN python -c "from huggingface_hub import snapshot_download; \
-    snapshot_download('tencent/Hunyuan3D-2mini', \
-        local_dir='/models/Hunyuan3D-2mini', \
-        allow_patterns=['hunyuan3d-dit-v2-mini-fast/*', 'config.json'])"
-
-# Download PaintPBR texture model - only paint components
-RUN python -c "from huggingface_hub import snapshot_download; \
-    snapshot_download('tencent/Hunyuan3D-2.1', \
-        local_dir='/models/Hunyuan3D-2.1', \
-        allow_patterns=['hunyuan3d-paintpbr-v2-1/*', 'hunyuan3d-vae-v2-1/*', 'hy3dpaint/*'])"
-
-# VERIFY: Model files exist
-RUN test -d /models/Hunyuan3D-Omni/model || (echo "ERROR: Omni model not downloaded" && exit 1)
-RUN test -d /models/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini-fast || (echo "ERROR: Mini-Fast model not downloaded" && exit 1)
-RUN test -d /models/Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1 || (echo "ERROR: PaintPBR model not downloaded" && exit 1)
-RUN ls -la /models/Hunyuan3D-Omni/
-RUN ls -la /models/Hunyuan3D-2mini/
-RUN ls -la /models/Hunyuan3D-2.1/
 
 # ONNX-based RealESRGAN upscaler (replaces basicsr/realesrgan packages)
 COPY onnx_upscaler.py /app/onnx_upscaler.py
@@ -317,8 +293,10 @@ print('Paint pipeline import: OK')" || echo "WARN: Paint pipeline import failed 
 # =============================================================================
 # FINAL: Environment and entrypoint
 # =============================================================================
-ENV HF_HOME=/models
-ENV HUGGINGFACE_HUB_CACHE=/models
+# Model base path - RunPod Network Volume mounts at /runpod-volume
+ENV MODEL_BASE=/runpod-volume/models
+ENV HF_HOME=/runpod-volume/models
+ENV HUGGINGFACE_HUB_CACHE=/runpod-volume/models
 
 # Texture generation settings (defaults for lower VRAM usage)
 ENV MAX_NUM_VIEW=3
@@ -342,11 +320,12 @@ RUN echo "=============================================" && \
     python -c "import torch; print(f'PyTorch: {torch.__version__}')" && \
     python -c "import custom_rasterizer; print('custom_rasterizer: installed')" && \
     python -c "import runpod; print(f'runpod: {runpod.__version__}')" && \
-    echo "Model paths:" && \
-    echo "  - Omni (quality): /models/Hunyuan3D-Omni" && \
-    du -sh /models/Hunyuan3D-Omni && \
-    echo "  - Mini-Fast (fast): /models/Hunyuan3D-2mini" && \
-    du -sh /models/Hunyuan3D-2mini && \
-    echo "  - PaintPBR (textures): /models/Hunyuan3D-2.1" && \
-    du -sh /models/Hunyuan3D-2.1 && \
+    echo "" && \
+    echo "MODEL_BASE: /runpod-volume/models (Network Volume)" && \
+    echo "Models expected at runtime:" && \
+    echo "  - Hunyuan3D-Omni/      (~24GB) - Quality shape generation" && \
+    echo "  - Hunyuan3D-2mini/     (~7GB)  - Fast shape generation" && \
+    echo "  - Hunyuan3D-2.1/       (~7GB)  - PBR texture painting" && \
+    echo "" && \
+    echo "Upload models to Network Volume before starting endpoint." && \
     echo "============================================="

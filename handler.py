@@ -67,6 +67,11 @@ from botocore.config import Config as BotoConfig
 
 
 # =============================================================================
+# Model paths (RunPod Network Volume)
+# =============================================================================
+MODEL_BASE = os.environ.get('MODEL_BASE', '/runpod-volume/models')
+
+# =============================================================================
 # S3 Configuration (for large output files)
 # =============================================================================
 S3_BUCKET = os.environ.get('S3_BUCKET', 'df92r74hdc')
@@ -223,7 +228,7 @@ def load_omni_pipeline():
     global shape_pipeline_omni
     from hy3dgen.shapegen import Hunyuan3DOmniSiTFlowMatchingPipeline
     shape_pipeline_omni = Hunyuan3DOmniSiTFlowMatchingPipeline.from_pretrained(
-        '/models/Hunyuan3D-Omni',
+        f'{MODEL_BASE}/Hunyuan3D-Omni',
         device=get_device()
     )
 
@@ -233,7 +238,7 @@ def load_fast_pipeline():
     global shape_pipeline_fast
     from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
     shape_pipeline_fast = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-        '/models/Hunyuan3D-2mini',
+        f'{MODEL_BASE}/Hunyuan3D-2mini',
         subfolder='hunyuan3d-dit-v2-mini-fast',
         device=get_device()
     )
@@ -404,8 +409,12 @@ def handler(job: dict) -> dict:
     if job_input == "health_check" or (isinstance(job_input, dict) and job_input.get("health_check")):
         return {
             "status": "healthy",
-            "model_dir": "/models/Hunyuan3D-2.1",
-            "model_available": os.path.exists("/models/Hunyuan3D-2.1"),
+            "model_base": MODEL_BASE,
+            "models_available": {
+                "omni": os.path.exists(f"{MODEL_BASE}/Hunyuan3D-Omni"),
+                "mini_fast": os.path.exists(f"{MODEL_BASE}/Hunyuan3D-2mini"),
+                "paint_pbr": os.path.exists(f"{MODEL_BASE}/Hunyuan3D-2.1"),
+            },
             "message": "Handler ready."
         }
 
