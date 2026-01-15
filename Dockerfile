@@ -242,7 +242,7 @@ COPY handler.py /app/handler.py
 
 # FIX: Replace schedulers.py to fix numpy/torch compatibility issue
 # (torch.from_numpy fails with "expected np.ndarray got numpy.ndarray")
-COPY schedulers.py /app/hy3dshape/hy3dshape/schedulers.py
+COPY schedulers.py /app/hy3dshape/schedulers.py
 
 # FIX: Replace mesh_utils.py with subprocess wrapper (calls bpy via Python 3.10)
 COPY mesh_utils_noblender.py /app/hy3dpaint/DifferentiableRenderer/mesh_utils.py
