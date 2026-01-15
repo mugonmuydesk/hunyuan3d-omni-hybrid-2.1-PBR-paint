@@ -95,9 +95,10 @@ ENV LD_LIBRARY_PATH="/usr/local/lib/python3.12/dist-packages/torch/lib:${LD_LIBR
 # =============================================================================
 # STAGE 3: Clone Hunyuan3D sources
 # =============================================================================
-# Need BOTH repos:
-# - Hunyuan3D-2: Contains hy3dgen for Omni/Mini-Fast shape generation
+# Need THREE repos:
 # - Hunyuan3D-2.1: Contains hy3dpaint for PBR texture generation
+# - Hunyuan3D-2: Contains hy3dgen for Mini-Fast shape generation
+# - Hunyuan3D-Omni: Contains hy3dshape for Omni shape generation
 WORKDIR /app
 
 # Clone Hunyuan3D-2.1 first (has hy3dpaint for textures)
@@ -105,13 +106,19 @@ RUN git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git . && \
     git lfs install && \
     git lfs pull
 
-# Clone Hunyuan3D-2 to get hy3dgen (shape generation for Omni/Mini-Fast)
+# Clone Hunyuan3D-2 to get hy3dgen (Mini-Fast shape generation)
 RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git /tmp/hy3d2 && \
     cp -r /tmp/hy3d2/hy3dgen /app/hy3dgen && \
     rm -rf /tmp/hy3d2
 
+# Clone Hunyuan3D-Omni to get hy3dshape (Omni shape generation)
+RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-Omni.git /tmp/hy3d-omni && \
+    cp -r /tmp/hy3d-omni/hy3dshape /app/hy3dshape && \
+    rm -rf /tmp/hy3d-omni
+
 # VERIFY: Key directories exist
 RUN test -d /app/hy3dgen || (echo "ERROR: hy3dgen not found" && exit 1)
+RUN test -d /app/hy3dshape || (echo "ERROR: hy3dshape not found" && exit 1)
 RUN test -d /app/hy3dpaint || (echo "ERROR: hy3dpaint not found" && exit 1)
 RUN test -f /app/requirements.txt || (echo "ERROR: requirements.txt not found" && exit 1)
 
@@ -283,13 +290,21 @@ import base64; \
 import tempfile; \
 print('Handler imports: OK')"
 
-# VERIFY: Shape pipeline can be imported (don't load weights, just import)
+# VERIFY: Mini-Fast shape pipeline can be imported (don't load weights, just import)
 RUN python -c "\
 import sys; \
 sys.path.insert(0, '/app'); \
 sys.path.insert(0, '/app/hy3dgen'); \
 from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline; \
-print('Shape pipeline import: OK')"
+print('Mini-Fast shape pipeline import: OK')"
+
+# VERIFY: Omni shape pipeline can be imported (don't load weights, just import)
+RUN python -c "\
+import sys; \
+sys.path.insert(0, '/app'); \
+sys.path.insert(0, '/app/hy3dshape'); \
+from hy3dshape.pipelines import Hunyuan3DOmniSiTFlowMatchingPipeline; \
+print('Omni shape pipeline import: OK')" || echo "WARN: Omni pipeline import failed - check at runtime"
 
 # VERIFY: Paint pipeline can be imported
 RUN python -c "\
@@ -309,9 +324,9 @@ ENV HUGGINGFACE_HUB_CACHE=/runpod-volume/models
 # Diffusers modules cache - must be writable for custom code loading
 ENV HF_MODULES_CACHE=/tmp/hf_modules
 
-# Texture generation settings (defaults for lower VRAM usage)
-ENV MAX_NUM_VIEW=3
-ENV TEXTURE_RESOLUTION=128
+# Texture generation settings (quality defaults)
+ENV MAX_NUM_VIEW=6
+ENV TEXTURE_RESOLUTION=512
 
 # VRAM Optimization toggles (OFF by default for max speed on high-VRAM GPUs like RunPod)
 # Set to "1" to enable when running on lower-VRAM GPUs

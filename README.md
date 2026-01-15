@@ -1,18 +1,23 @@
-# Hunyuan3D-2.1 RunPod Serverless Endpoint
+# Hunyuan3D Omni-Hybrid RunPod Serverless Endpoint
 
-Deploy Tencent's Hunyuan3D-2.1 as a RunPod serverless endpoint for image-to-3D generation with PBR textures.
+Deploy Tencent's Hunyuan3D as a RunPod serverless endpoint for image-to-3D generation with PBR textures.
+
+## Architecture
+
+This endpoint combines three model components:
+
+| Component | Model Size | VRAM | Description |
+|-----------|------------|------|-------------|
+| **Omni** | 3.3B | ~10GB | Quality shape generation (default), supports pose/skeleton |
+| **Mini-Fast** | 0.6B | ~5GB | Fast shape generation (`fast_mode=true`) |
+| **Paint 2.1** | 2B | ~21GB | PBR texture synthesis |
 
 ## Key Fix
 
-This deployment uses a **prebuilt Linux wheel** for the `custom_rasterizer` CUDA extension from the official Tencent HuggingFace space, avoiding the compilation issues that occur during Docker builds.
-
-**Prebuilt wheel source:**
-```
-https://huggingface.co/spaces/tencent/Hunyuan3D-2.1/resolve/main/custom_rasterizer-0.1-cp310-cp310-linux_x86_64.whl
-```
+This deployment uses a **prebuilt Linux wheel** for the `custom_rasterizer` CUDA extension, avoiding compilation issues during Docker builds (no GPU available at build time).
 
 **Requirements:**
-- Python 3.10 (must match the wheel)
+- Python 3.12 (must match the wheel)
 - CUDA 12.4
 - PyTorch 2.5.1
 
@@ -120,6 +125,9 @@ curl https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/status/JOB_ID \
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `image_base64` | string | required | Base64 encoded input image |
+| `fast_mode` | boolean | `false` | Use Mini-Fast (0.6B) instead of Omni (3.3B) for faster inference |
+| `skeleton_base64` | string | optional | Base64 encoded skeleton/pose file (Omni only) |
+| `skeleton_data` | array | optional | Bone coordinates as JSON array (Omni only) |
 | `generate_texture` | boolean | `true` | Generate PBR textures |
 | `output_format` | string | `"glb"` | Output format: `"glb"` or `"obj"` |
 | `num_views` | integer | `6` | Number of views for texture synthesis |
@@ -129,21 +137,24 @@ curl https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/status/JOB_ID \
 
 ```json
 {
-  "model": "<base64 encoded GLB/OBJ file>",
+  "download_url": "https://s3api-eur-is-1.runpod.io/...",
+  "s3_key": "outputs/job-id/model.glb",
   "format": "glb",
-  "textured": true
+  "textured": true,
+  "size_mb": 12.34
 }
 ```
 
-### Decode the Output
+### Download the Output
 
 ```python
-import base64
+import requests
 
 # From the API response
 result = response.json()["output"]
-model_data = base64.b64decode(result["model"])
 
+# Download from presigned URL
+model_data = requests.get(result["download_url"]).content
 with open(f"output.{result['format']}", "wb") as f:
     f.write(model_data)
 ```
@@ -172,8 +183,8 @@ For larger images, consider:
 ### "No module named 'custom_rasterizer'"
 
 The prebuilt wheel wasn't installed correctly. Check:
-1. Python version is 3.10 (not 3.11 or 3.12)
-2. The wheel URL is accessible during build
+1. Python version is 3.12 (must match the wheel)
+2. The wheel file is present in the build context
 3. Run: `python -c "import custom_rasterizer; print('OK')"`
 
 ### Out of Memory
@@ -193,7 +204,7 @@ Or disable textures entirely: `"generate_texture": false`
 
 ### Slow Cold Starts
 
-The Docker image includes pre-downloaded model weights (~7GB). Cold starts typically take 30-60s for model loading. To reduce:
+Models are loaded from Network Volume on first request. Cold starts typically take 30-60s for model loading. To reduce:
 1. Keep Idle Timeout higher (60s+)
 2. Use Active Workers to maintain minimum warm workers
 3. Consider RunPod's FlashBoot feature
@@ -211,5 +222,5 @@ Default timeout is 600s. For high-resolution textures, increase via RunPod endpo
 
 ## Credits
 
-- [Tencent Hunyuan3D-2.1](https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1)
-- [Prebuilt wheel from Tencent HuggingFace Space](https://huggingface.co/spaces/tencent/Hunyuan3D-2.1)
+- [Tencent Hunyuan3D-2](https://github.com/Tencent-Hunyuan/Hunyuan3D-2) - Shape generation (Omni/Mini-Fast)
+- [Tencent Hunyuan3D-2.1](https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1) - PBR texture synthesis

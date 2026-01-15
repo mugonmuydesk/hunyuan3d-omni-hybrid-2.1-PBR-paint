@@ -56,6 +56,7 @@ from datetime import datetime
 # Add Hunyuan3D paths
 sys.path.insert(0, '/app')
 sys.path.insert(0, '/app/hy3dgen')
+sys.path.insert(0, '/app/hy3dshape')
 sys.path.insert(0, '/app/hy3dpaint')
 
 import runpod
@@ -226,7 +227,7 @@ def load_omni_pipeline():
     support for multi-modal control signals including skeleton/pose.
     """
     global shape_pipeline_omni
-    from hy3dgen.shapegen import Hunyuan3DOmniSiTFlowMatchingPipeline
+    from hy3dshape.pipelines import Hunyuan3DOmniSiTFlowMatchingPipeline
     shape_pipeline_omni = Hunyuan3DOmniSiTFlowMatchingPipeline.from_pretrained(
         f'{MODEL_BASE}/Hunyuan3D-Omni',
         device=get_device()
