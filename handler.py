@@ -55,7 +55,7 @@ from datetime import datetime
 
 # Add Hunyuan3D paths
 sys.path.insert(0, '/app')
-sys.path.insert(0, '/app/hy3dshape')
+sys.path.insert(0, '/app/hy3dgen')
 sys.path.insert(0, '/app/hy3dpaint')
 
 import runpod

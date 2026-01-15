@@ -93,16 +93,25 @@ RUN python -c "import torch; print(f'PyTorch {torch.__version__}'); print(f'CUDA
 ENV LD_LIBRARY_PATH="/usr/local/lib/python3.12/dist-packages/torch/lib:${LD_LIBRARY_PATH}"
 
 # =============================================================================
-# STAGE 3: Clone Hunyuan3D-2.1 source
+# STAGE 3: Clone Hunyuan3D sources
 # =============================================================================
+# Need BOTH repos:
+# - Hunyuan3D-2: Contains hy3dgen for Omni/Mini-Fast shape generation
+# - Hunyuan3D-2.1: Contains hy3dpaint for PBR texture generation
 WORKDIR /app
 
+# Clone Hunyuan3D-2.1 first (has hy3dpaint for textures)
 RUN git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git . && \
     git lfs install && \
     git lfs pull
 
+# Clone Hunyuan3D-2 to get hy3dgen (shape generation for Omni/Mini-Fast)
+RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git /tmp/hy3d2 && \
+    cp -r /tmp/hy3d2/hy3dgen /app/hy3dgen && \
+    rm -rf /tmp/hy3d2
+
 # VERIFY: Key directories exist
-RUN test -d /app/hy3dshape || (echo "ERROR: hy3dshape not found" && exit 1)
+RUN test -d /app/hy3dgen || (echo "ERROR: hy3dgen not found" && exit 1)
 RUN test -d /app/hy3dpaint || (echo "ERROR: hy3dpaint not found" && exit 1)
 RUN test -f /app/requirements.txt || (echo "ERROR: requirements.txt not found" && exit 1)
 
@@ -266,7 +275,7 @@ print('image_super_utils (ONNX): OK')"
 RUN python -c "\
 import sys; \
 sys.path.insert(0, '/app'); \
-sys.path.insert(0, '/app/hy3dshape'); \
+sys.path.insert(0, '/app/hy3dgen'); \
 sys.path.insert(0, '/app/hy3dpaint'); \
 import runpod; \
 import torch; \
@@ -278,8 +287,8 @@ print('Handler imports: OK')"
 RUN python -c "\
 import sys; \
 sys.path.insert(0, '/app'); \
-sys.path.insert(0, '/app/hy3dshape'); \
-from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline; \
+sys.path.insert(0, '/app/hy3dgen'); \
+from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline; \
 print('Shape pipeline import: OK')"
 
 # VERIFY: Paint pipeline can be imported
