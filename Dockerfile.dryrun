@@ -78,16 +78,33 @@ RUN echo "=== VERIFY: PyTorch ===" && \
 ENV LD_LIBRARY_PATH="/usr/local/lib/python3.12/dist-packages/torch/lib:${LD_LIBRARY_PATH}"
 
 # =============================================================================
-# STAGE 3: Clone Hunyuan3D-2.1
+# STAGE 3: Clone Hunyuan3D sources
 # =============================================================================
+# Need THREE repos:
+# - Hunyuan3D-2.1: Contains hy3dpaint for PBR texture generation
+# - Hunyuan3D-2: Contains hy3dgen for Mini-Fast shape generation
+# - Hunyuan3D-Omni: Contains hy3dshape for Omni shape generation
 WORKDIR /app
 
-RUN echo "=== STAGE 3: Clone repo ===" && \
+RUN echo "=== STAGE 3: Clone repos ===" && \
     git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git . && \
     git lfs install
 
+# Clone Hunyuan3D-2 to get hy3dgen (Mini-Fast shape generation)
+RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git /tmp/hy3d2 && \
+    cp -r /tmp/hy3d2/hy3dgen /app/hy3dgen && \
+    rm -rf /tmp/hy3d2
+
+# Clone Hunyuan3D-Omni to get hy3dshape (Omni shape generation)
+# IMPORTANT: Must remove the nested hy3dshape from Hunyuan3D-2.1 first!
+RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-Omni.git /tmp/hy3d-omni && \
+    rm -rf /app/hy3dshape && \
+    cp -r /tmp/hy3d-omni/hy3dshape /app/hy3dshape && \
+    rm -rf /tmp/hy3d-omni
+
 # VERIFY
 RUN echo "=== VERIFY: Repo structure ===" && \
+    test -d /app/hy3dgen && echo "PASS: hy3dgen exists" || (echo "FAIL: hy3dgen not found" && exit 1) && \
     test -d /app/hy3dshape && echo "PASS: hy3dshape exists" || (echo "FAIL: hy3dshape not found" && exit 1) && \
     test -d /app/hy3dpaint && echo "PASS: hy3dpaint exists" || (echo "FAIL: hy3dpaint not found" && exit 1) && \
     test -f /app/requirements.txt && echo "PASS: requirements.txt exists" || (echo "FAIL: requirements.txt not found" && exit 1)
@@ -187,8 +204,15 @@ RUN python -c "\
 import sys; \
 sys.path.insert(0, '/app'); \
 sys.path.insert(0, '/app/hy3dshape'); \
-from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline; \
-print('PASS: Shape pipeline import')" || echo "WARN: Shape pipeline import skipped (needs full deps)"
+from hy3dshape.pipelines import Hunyuan3DOmniSiTFlowMatchingPipeline; \
+print('PASS: Omni shape pipeline import')" || echo "WARN: Omni shape pipeline import skipped (needs full deps)"
+
+RUN python -c "\
+import sys; \
+sys.path.insert(0, '/app'); \
+sys.path.insert(0, '/app/hy3dgen'); \
+from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline; \
+print('PASS: Mini-Fast shape pipeline import')" || echo "WARN: Mini-Fast shape pipeline import skipped (needs full deps)"
 
 RUN python -c "\
 import sys; \

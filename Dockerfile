@@ -112,7 +112,10 @@ RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git /tmp/
     rm -rf /tmp/hy3d2
 
 # Clone Hunyuan3D-Omni to get hy3dshape (Omni shape generation)
+# IMPORTANT: Must remove the nested hy3dshape from Hunyuan3D-2.1 first!
+# Hunyuan3D-2.1 has hy3dshape/hy3dshape/ structure, which would conflict
 RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-Omni.git /tmp/hy3d-omni && \
+    rm -rf /app/hy3dshape && \
     cp -r /tmp/hy3d-omni/hy3dshape /app/hy3dshape && \
     rm -rf /tmp/hy3d-omni
 
