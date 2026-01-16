@@ -5,10 +5,12 @@
 transformers>=4.30.0
 diffusers>=0.20.0
 accelerate
+einops>=0.8.0
 
-# 3D processing (lightweight)
+# 3D processing
 trimesh
 pygltflib
+pymeshlab
 
 # Image processing
 Pillow
