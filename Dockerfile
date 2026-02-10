@@ -102,9 +102,9 @@ ENV LD_LIBRARY_PATH="/usr/local/lib/python3.12/dist-packages/torch/lib:${LD_LIBR
 WORKDIR /app
 
 # Clone Hunyuan3D-2.1 first (has hy3dpaint for textures)
-RUN git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git . && \
-    git lfs install && \
-    git lfs pull
+# Skip LFS files - models are stored on Network Volume, not in the Docker image
+RUN GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git . && \
+    rm -rf .git
 
 # Clone Hunyuan3D-2 to get hy3dgen (Mini-Fast shape generation)
 RUN git clone --depth 1 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git /tmp/hy3d2 && \
